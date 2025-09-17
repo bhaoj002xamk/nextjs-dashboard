@@ -4,6 +4,8 @@ import { z } from 'zod';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import postgres from 'postgres';
+import { signIn } from '@/auth';
+import { AuthError } from 'next-auth';
 
 const sql = postgres(process.env.POSTGRES_URL_NON_POOLING!, { ssl: 'require' });
 
@@ -24,7 +26,7 @@ const FormSchema = z.object({
 const CreateInvoice = FormSchema.omit({ id: true, date: true });
 const UpdateInvoice = FormSchema.omit({ id: true, date: true });
 
-// Lisää State type
+// State type for form validation
 export type State = {
   errors?: {
     customerId?: string[];
@@ -33,6 +35,26 @@ export type State = {
   };
   message?: string | null;
 };
+
+// Authentication action
+export async function authenticate(
+  prevState: string | undefined,
+  formData: FormData,
+) {
+  try {
+    await signIn('credentials', formData);
+  } catch (error) {
+    if (error instanceof AuthError) {
+      switch (error.type) {
+        case 'CredentialsSignin':
+          return 'Invalid credentials.';
+        default:
+          return 'Something went wrong.';
+      }
+    }
+    throw error;
+  }
+}
 
 export async function createInvoice(prevState: State, formData: FormData) {
   // Validate form using Zod
@@ -62,7 +84,7 @@ export async function createInvoice(prevState: State, formData: FormData) {
       VALUES (${customerId}, ${amountInCents}, ${status}, ${date})
     `;
   } catch (error) {
-    console.error('Database Error:', error);  // ← Lisää console.error
+    console.error('Database Error:', error);
     return {
       message: 'Database Error: Failed to Create Invoice.',
     };
@@ -101,7 +123,7 @@ export async function updateInvoice(
       WHERE id = ${id}
     `;
   } catch (error) {
-    console.error('Database Error:', error);  // ← Lisää console.error
+    console.error('Database Error:', error);
     return { message: 'Database Error: Failed to Update Invoice.' };
   }
  
@@ -110,7 +132,6 @@ export async function updateInvoice(
 }
 
 export async function deleteInvoice(id: string) {
-
   await sql`DELETE FROM invoices WHERE id = ${id}`;
   revalidatePath('/dashboard/invoices');
 }
